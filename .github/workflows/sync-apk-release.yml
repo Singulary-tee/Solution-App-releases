@@ -128,7 +128,7 @@ jobs:
             jq -r 'to_entries[] | "| \(.key) | \(.value.version) | \(.value.date) | [Download APK](\(.value.download)) |"' releases.json
             echo ""
             echo "---"
-            echo '<a href="https://ko-fi.com/yourpage">Support Development ☕</a>'
+            echo '<a href="https://ko-fi.com/your_solution">Support</a>'
           } > README.md
 
           git config user.name "github-actions"
