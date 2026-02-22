@@ -9,15 +9,15 @@ on:
   workflow_dispatch:
     inputs:
       source_repo:
-        description: 'Source private repo (e.g. Singulary-tee/aafiya)'
+        description: 'Source private repo'
         required: true
         type: string
       release_tag:
-        description: 'Release tag in the source repo (e.g. v1)'
+        description: 'Release tag in the source repo'
         required: true
         type: string
       app_name:
-        description: 'App name used for organizing APKs (e.g. aafiya)'
+        description: 'App name used for organizing APKs'
         required: true
         type: string
 
@@ -25,7 +25,7 @@ jobs:
   sync-apk:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # required to create releases and upload assets
+      contents: write 
 
     steps:
       - name: Resolve inputs
