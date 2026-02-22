@@ -41,6 +41,9 @@ jobs:
             echo "app_name=${{ inputs.app_name }}"        >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download APK assets from private repo release
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
@@ -94,3 +97,44 @@ jobs:
             --clobber
 
           echo "Release published: https://github.com/${{ github.repository }}/releases/tag/${PUBLIC_TAG}"
+
+      - name: Update releases and README
+        run: |
+          APP_NAME="${{ steps.vars.outputs.app_name }}"
+          VERSION="${{ steps.vars.outputs.release_tag }}"
+          DATE=$(LC_TIME=C date +'%B %d, %Y')
+          PUBLIC_TAG="${APP_NAME}-${VERSION}"
+          DOWNLOAD="https://github.com/${{ github.repository }}/releases/download/${PUBLIC_TAG}/${APP_NAME}.apk"
+
+          # Initialize releases.json if it doesn't exist
+          if [ ! -f releases.json ]; then
+            echo '{}' > releases.json
+          fi
+
+          # Update releases.json for this specific app only
+          jq --arg app "$APP_NAME" \
+             --arg version "$VERSION" \
+             --arg date "$DATE" \
+             --arg url "$DOWNLOAD" \
+             '.[$app] = {"version": $version, "date": $date, "download": $url}' \
+             releases.json > releases.tmp && mv releases.tmp releases.json
+
+          # Regenerate README from releases.json
+          {
+            echo "# Releases"
+            echo ""
+            echo "| App | Version | Released | Download |"
+            echo "|---|---|---|---|"
+            jq -r 'to_entries[] | "| \(.key) | \(.value.version) | \(.value.date) | [Download APK](\(.value.download)) |"' releases.json
+            echo ""
+            echo "---"
+            echo '<a href="https://ko-fi.com/yourpage">Support Development ☕</a>'
+          } > README.md
+
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add releases.json README.md
+          git diff --staged --quiet || git commit -m "Update ${APP_NAME} to ${VERSION}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
