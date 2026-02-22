@@ -1,0 +1,96 @@
+name: Sync APK Release
+
+on:
+  # Triggered automatically from private repos via repository_dispatch
+  repository_dispatch:
+    types: [apk-release]
+
+  # Manual trigger for one-off syncs
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: 'Source private repo (e.g. Singulary-tee/aafiya)'
+        required: true
+        type: string
+      release_tag:
+        description: 'Release tag in the source repo (e.g. v1)'
+        required: true
+        type: string
+      app_name:
+        description: 'App name used for organizing APKs (e.g. aafiya)'
+        required: true
+        type: string
+
+jobs:
+  sync-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to create releases and upload assets
+
+    steps:
+      - name: Resolve inputs
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "source_repo=${{ github.event.client_payload.source_repo }}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=${{ github.event.client_payload.release_tag }}"  >> "$GITHUB_OUTPUT"
+            echo "app_name=${{ github.event.client_payload.app_name }}"        >> "$GITHUB_OUTPUT"
+          else
+            echo "source_repo=${{ inputs.source_repo }}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=${{ inputs.release_tag }}"  >> "$GITHUB_OUTPUT"
+            echo "app_name=${{ inputs.app_name }}"        >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download APK assets from private repo release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          mkdir -p apks
+          SOURCE_REPO="${{ steps.vars.outputs.source_repo }}"
+          RELEASE_TAG="${{ steps.vars.outputs.release_tag }}"
+
+          echo "Fetching release assets from ${SOURCE_REPO}@${RELEASE_TAG} ..."
+
+          # Download only .apk files from the release
+          gh release download "$RELEASE_TAG" \
+            --repo "$SOURCE_REPO" \
+            --pattern "*.apk" \
+            --dir apks
+
+          echo "Downloaded APKs:"
+          ls -lh apks/
+
+          # Fail early if no APKs were downloaded
+          APK_COUNT=$(ls apks/*.apk 2>/dev/null | wc -l)
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: No APK files found in the release '${RELEASE_TAG}' of '${SOURCE_REPO}'."
+            exit 1
+          fi
+          echo "Found ${APK_COUNT} APK file(s) to publish."
+
+      - name: Create or update release in this public repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APP_NAME="${{ steps.vars.outputs.app_name }}"
+          RELEASE_TAG="${{ steps.vars.outputs.release_tag }}"
+          PUBLIC_TAG="${APP_NAME}-${RELEASE_TAG}"
+
+          # Build a release title and body
+          RELEASE_TITLE="${APP_NAME} ${RELEASE_TAG}"
+          RELEASE_NOTES="APK release for **${APP_NAME}** \`${RELEASE_TAG}\`."
+
+          echo "Publishing release '${PUBLIC_TAG}' ..."
+
+          # Create the release if it doesn't exist yet; ignore error if it already does
+          gh release create "$PUBLIC_TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$RELEASE_TITLE" \
+            --notes "$RELEASE_NOTES" 2>/dev/null || true
+
+          # Upload (or overwrite) all downloaded APKs
+          gh release upload "$PUBLIC_TAG" apks/*.apk \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+          echo "Release published: https://github.com/${{ github.repository }}/releases/tag/${PUBLIC_TAG}"
